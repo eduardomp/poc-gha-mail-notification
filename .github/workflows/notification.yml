@@ -1,0 +1,75 @@
+name: Email notification
+
+
+on:
+  schedule:
+    # * is a special character in YAML so you have to quote this string
+    - cron:  '11 23 * * *'
+
+  workflow_dispatch: 
+
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Load .env file
+        uses: aarcangeli/load-dotenv@v1.0.0
+        with:
+          filenames: |
+            .env.mails
+          quiet: false
+          if-file-not-found: error
+
+      - name: Show .env value
+        run: |
+          echo "The email list:"
+          echo "${{ env.email_list }}"
+
+      - name: Get user info that triggered the workflow
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          USER_INFO=$(gh api \
+          -H "Accept: application/vnd.github+json" \
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          /users/${{ github.actor }})
+
+          echo "USER_INFO=$USER_INFO" >> $GITHUB_ENV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show username, name and email that triggered workflow
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "Username ${{ github.actor }}"
+          echo "Name: ${{fromJson( env.USER_INFO ).name}}"
+          echo "Email: ${{fromJson( env.USER_INFO ).email}}"
+
+      - name: Set email list in case of workflow_dispatch
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "EMAIL_LIST_TO_NOTIFY=${{fromJson( env.USER_INFO ).email}}" >> $GITHUB_ENV
+
+      - name: Set email list in case of schedule
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          echo "EMAIL_LIST_TO_NOTIFY=${{ env.email_list }}" >> $GITHUB_ENV
+
+      - name: Email notification
+        if: success()
+        uses: cinotify/github-action@main
+        with:
+          to: '${{ env.EMAIL_LIST_TO_NOTIFY }}'
+          subject: 'Workflow dispatch triggered'
+          body: 'This is a notification from GitHub actions.'
+
+      - name: Email notification
+        if: failure()
+        uses: cinotify/github-action@main
+        with:
+          to: '${{ env.EMAIL_LIST_TO_NOTIFY }}'
+          subject: 'ERROR: Workflow dispatch triggered'
+          body: 'ERROR: This is a notification from GitHub actions.'
